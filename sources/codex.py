@@ -34,11 +34,13 @@ def default_command():
 class CodexAppServerSource(AgentEventSource):
     mode = 'codex'
 
-    def __init__(self, agents, command=None, reconnect_delay=1.0, project_root=None, roster_path=None, request_timeout=20):
+    def __init__(self, agents, command=None, reconnect_delay=1.0, project_root=None, roster_path=None, request_timeout=20, instructions=None, thread_saver=None):
         super().__init__(agents)
         self.command = command or default_command()
         self.project_root = Path(project_root or Path.cwd()).resolve()
         self.roster_path = Path(roster_path) if roster_path else None
+        self.instructions = instructions
+        self.thread_saver = thread_saver
         self.reconnect_delay = max(.05, float(reconnect_delay))
         self.request_timeout = max(.1, float(request_timeout))
         self._process = None
@@ -146,6 +148,11 @@ class CodexAppServerSource(AgentEventSource):
     def _start_params(self, agent):
         instructions = f"You are {agent['name']}. Your role: {agent['role']}. Work within the current project and report public progress clearly."
         params = {'model': agent['model'], 'cwd': str(self.project_root)}
+        if self.instructions is not None:
+            instructions = f"Your role: {agent['role']}. Work within the selected project and report public progress clearly.\n\n" + self.instructions.get(agent['id'], '')
+            params['developerInstructions'] = instructions
+            params['config'] = {'model_reasoning_effort': agent.get('reasoning_effort', 'medium')}
+            return params
         filenames = {'orchestrator': 'orchestrator.toml', 'frontend': 'frontend-implementor.toml',
                      'backend': 'backend-implementor.toml', 'mission_control': 'mission-control.toml'}
         filename = filenames.get(agent['id'])
@@ -172,7 +179,8 @@ class CodexAppServerSource(AgentEventSource):
         for agent in roster:
             if agent['id'] in mapping and mapping[agent['id']]:
                 agent['app_server_thread_id'] = mapping[agent['id']]
-        self.roster_path.write_text(json.dumps(roster, indent=2) + '\n', encoding='utf-8')
+        from workspace import atomic_json
+        atomic_json(self.roster_path, roster)
 
     def _connect(self):
         self._process = subprocess.Popen(self.command, cwd=str(self.project_root), stdin=subprocess.PIPE,
@@ -191,7 +199,9 @@ class CodexAppServerSource(AgentEventSource):
                 thread_id = agent.get('app_server_thread_id')
                 if thread_id:
                     self._thread_agents[thread_id] = agent_id
-                    result = self._rpc('thread/resume', {'threadId': thread_id, 'excludeTurns': True})
+                    params = self._start_params(agent)
+                    params.update({'threadId': thread_id, 'excludeTurns': True})
+                    result = self._rpc('thread/resume', params)
                 else:
                     result = self._rpc('thread/start', self._start_params(agent))
                     thread_id = result.get('thread', {}).get('id')
@@ -200,7 +210,10 @@ class CodexAppServerSource(AgentEventSource):
                     agent['app_server_thread_id'] = thread_id
                     self._thread_agents[thread_id] = agent_id
                     try:
-                        self._persist_ids()
+                        if self.thread_saver:
+                            self.thread_saver(agent_id, thread_id)
+                        else:
+                            self._persist_ids()
                     except (OSError, ValueError, TypeError) as exc:
                         self._publish(make_event(agent_id, 'error', message='Could not save new thread ID', detail=str(exc)))
                 self._hydrate(agent_id, thread_id, result)

@@ -1,0 +1,14 @@
+# Local project folders, thread IDs, custom instructions and presets
+/workspace.json
+/data/
+# Virtual environments and Python/tool caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

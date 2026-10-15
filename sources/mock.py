@@ -40,8 +40,8 @@ class MockEventSource(AgentEventSource):
             name = next(a['name'] for a in self.agents if a['id'] == agent_id)
             self._publish(make_event(agent_id, 'message', message_id=str(uuid4()), role='assistant', content=(
                 f'[DEMO - {name}] I received: "{content}"\n\n'
-                'This is a simulated reply. Set source to codex and configure this agent\'s '
-                'app_server_thread_id to chat with your existing Codex thread.')))
+                'This is a simulated reply. Choose "Codex agents" under Activity source '
+                "to start or resume this project's agents.")))
             self._status(agent_id, 'idle', 'Demo: replied to your message')
 
     def _tick(self):
@@ -66,7 +66,7 @@ class MockEventSource(AgentEventSource):
             tool = 'file' if index % 2 == 0 else 'shell'
             self._status(agent_id, 'tool_call', 'Demo: file inspection' if tool == 'file' else 'Demo: checking shell output')
             self._publish(make_event(agent_id, 'tool_call', tool=tool,
-                                    name='Inspect project files' if tool == 'file' else 'Check local server', summary='Demo tool activity'))
+                                    name='Inspect project files' if tool == 'file' else 'Inspect command output', summary='Demo tool activity'))
         elif phase == 3 and (self._step // (count * 6)) % 2 == 0 and index == count - 1:
             self._status(agent_id, 'error', 'Demo: sample check failed')
             self._publish(make_event(agent_id, 'error', message='Simulated check failure', detail='Demo only; the next phase recovers.'))

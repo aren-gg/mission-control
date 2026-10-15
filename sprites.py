@@ -56,15 +56,20 @@ def whale_image(species='blue_whale', state='idle', frame=0, flip=False):
         oval(36,18,20,10); oval(48,11,9,8); oval(55,18,7,4)
     elif species == 'sperm_whale':
         oval(31,18,22,9); poly([(38,5),(59,5),(61,8),(61,25),(56,27),(36,25)])
+    elif species == 'blue_whale':
+        # Long back, rounded broad rostrum, tapered tail stock and gently bowed belly.
+        poly([(10,15),(17,12),(23,8),(33,6),(46,7),(56,10),(61,13),(63,17),(61,21),(55,24),(43,26),(31,26),(23,24),(17,21),(10,20)])
+        poly([(27,9),(30,5),(34,9)])
     else:
-        oval(35,17,25 if species=='blue_whale' else 23,9 if species=='blue_whale' else 10)
+        oval(35,17,23,10)
         if species == 'orca': poly([(28,11),(31,0),(35,3),(38,13)])
         elif species == 'humpback': poly([(28,10),(31,5),(36,12)])
         else: poly([(27,11),(30,7),(34,11)])
-    poly([(5,14),(22,14),(23,22),(5,21)])
-    offset = -2 if frame % 2 else 2
-    poly([(1,8+offset),(7,11+offset),(12,18),(7,24+offset),(1,27+offset),(3,18)])
-    poly([(33,21),(37,21),(34,29),(29,28),(29,25)])
+    poly([(6,16),(17,13),(22,17),(18,22),(6,20)])
+    offset = -1 if frame % 2 else 1
+    # Two pointed flukes share a narrow stock, with a clear central notch.
+    poly([(1,8+offset),(6,10+offset),(10,15),(13,17),(9,20),(6,25+offset),(1,28+offset),(2,22),(5,18),(2,14)])
+    poly([(34,20),(38,22),(35,28),(30,31),(28,29),(30,24)])
     if species == 'humpback': poly([(34,20),(39,22),(31,31),(25,30)])
     if species == 'narwhal': poly([(56,12),(64,9),(63,12),(57,15)])
     body = 14 if species=='beluga' else 1 if species=='orca' else 2
@@ -78,9 +83,12 @@ def whale_image(species='blue_whale', state='idle', frame=0, flip=False):
         rect(19,22,35,3,13)
         for x in (25,30,35,40,45): rect(x,23,1,2,2)
         for x,y in ((24,14),(37,12),(43,15),(30,17)): rect(x,y,3,1,13)
-    elif species=='beluga': rect(22,23,30,2,15)
+    elif species=='beluga':
+        rect(22,23,30,2,15)
+        rect(54,21,6,1,0)
     elif species=='orca': rect(23,22,31,4,15);rect(47,12,7,4,15)
-    elif species=='sperm_whale': rect(44,8,1,5,1);rect(47,9,1,4,1);rect(20,23,35,2,13)
+    elif species=='sperm_whale':
+        rect(44,8,1,5,1);rect(47,9,1,4,1);rect(20,23,35,2,13);rect(54,23,6,1,0)
     else: rect(24,23,28,2,13)
     eye_x = 54 if species=='sperm_whale' else 56 if species=='beluga' else 53
     pixels[17][eye_x]=0

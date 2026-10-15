@@ -13,7 +13,10 @@ PALETTE = {'#0B132B','#1C2541','#3A506B','#5BC0BE','#6FFFE9','#F4F1DE','#F2CC8F'
 
 
 def load_roster(path=BASE_DIR / 'agents.json'):
-    agents = json.loads(Path(path).read_text(encoding='utf-8'))
+    return validate_roster(json.loads(Path(path).read_text(encoding='utf-8')))
+
+
+def validate_roster(agents):
     if not isinstance(agents, list) or not 1 <= len(agents) <= 8:
         raise ValueError('agents.json must contain an array of 1 to 8 agents')
     seen = set()
@@ -35,6 +38,9 @@ def load_roster(path=BASE_DIR / 'agents.json'):
             raise ValueError(prefix + ': unsupported species')
         if not isinstance(agent.get('accent_color'), str) or agent['accent_color'] not in PALETTE:
             raise ValueError(prefix + ': accent_color must use the shared palette')
+        effort = agent.get('reasoning_effort', 'medium')
+        if not isinstance(effort, str) or effort not in {'none','minimal','low','medium','high','xhigh','max','ultra'}:
+            raise ValueError(prefix + ': unsupported reasoning effort')
         thread_id = agent.get('app_server_thread_id')
         if thread_id is not None:
             if not isinstance(thread_id, str) or not thread_id.strip():
@@ -60,16 +66,17 @@ def load_config(path=BASE_DIR / 'config.json'):
         return {'source': 'mock', 'warning': str(exc)}
 
 
-def create_source(project_root=None):
+def create_source(project_root=None, *, agents=None, config=None, roster_path=None, instructions=None, thread_saver=None):
     root = Path(project_root or BASE_DIR)
-    agents = load_roster(root / 'agents.json')
-    config = load_config(root / 'config.json')
+    agents = load_roster(root / 'agents.json') if agents is None else validate_roster(agents)
+    config = load_config(root / 'config.json') if config is None else config
     if config['source'] == 'codex':
         return CodexAppServerSource(agents, command=config.get('app_server_command'),
-                                   project_root=root, roster_path=root / 'agents.json')
+                                   project_root=root, roster_path=roster_path or root / 'agents.json',
+                                   instructions=instructions, thread_saver=thread_saver)
     source = MockEventSource(agents)
     source.config_warning = config.get('warning')
     return source
 
 
-__all__ = ['AgentEventSource', 'MockEventSource', 'CodexAppServerSource', 'make_event', 'load_roster', 'load_config', 'create_source']
+__all__ = ['AgentEventSource', 'MockEventSource', 'CodexAppServerSource', 'make_event', 'load_roster', 'validate_roster', 'load_config', 'create_source']

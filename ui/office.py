@@ -37,6 +37,11 @@ class OfficeWidget(QWidget):
         scale=max(1,min(self.width()//480,self.height()//270));self.scale_factor=scale
         x=max(0,(self.width()-480*scale)//2);y=max(0,(self.height()-270*scale)//2);self.image_origin=(x,y)
         p=QPainter(self);p.setRenderHint(QPainter.RenderHint.Antialiasing,False);p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform,False);p.fillRect(self.rect(),COLORS[1]);p.drawImage(QRect(x,y,480*scale,270*scale),image)
+    def resizeEvent(self,event):
+        # Keep a full integer-size scene; the surrounding Office scroll area handles shorter screens.
+        target=max(1,self.width()//480)*270
+        if self.minimumHeight()!=target:self.setMinimumHeight(target)
+        super().resizeEvent(event)
     def mousePressEvent(self,event):
         x=(event.position().x()-self.image_origin[0])/self.scale_factor;y=(event.position().y()-self.image_origin[1])/self.scale_factor
         for agent_id,rect in reversed(list(self.hitboxes.items())):
