@@ -1,0 +1,19 @@
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 4
+
+[agents.orchestrator]
+description = "Technical lead for decomposing project changes, assigning backend and frontend work, and integrating the results."
+config_file = "agents/orchestrator.toml"
+
+[agents.backend_implementor]
+description = "Backend implementation specialist for APIs, services, data models, persistence, and server-side behavior."
+config_file = "agents/backend-implementor.toml"
+
+[agents.frontend_implementor]
+description = "Frontend implementation specialist for UI, client state, accessibility, and browser-facing behavior."
+config_file = "agents/frontend-implementor.toml"
+
+[agents.mission_control]
+description = "Lightweight project manager and checker-upper that tracks delegated work, checks integration and completion, and reports blockers."
+config_file = "agents/mission-control.toml"

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "orchestrator",
+    "name": "Orchestrator",
+    "role": "Coordinates implementation work",
+    "model": "gpt-6-astra",
+    "species": "blue_whale",
+    "accent_color": "#5BC0BE",
+    "app_server_thread_id": null
+  },
+  {
+    "id": "frontend",
+    "name": "Front End",
+    "role": "Builds the browser interface",
+    "model": "gpt-6.1-sol",
+    "species": "beluga",
+    "accent_color": "#DDEBF0",
+    "app_server_thread_id": null
+  },
+  {
+    "id": "backend",
+    "name": "Back End",
+    "role": "Builds the local API and event source",
+    "model": "gpt-6.1-sol",
+    "species": "orca",
+    "accent_color": "#A0AEC0",
+    "app_server_thread_id": null
+  },
+  {
+    "id": "mission_control",
+    "name": "Mission Control",
+    "role": "Checks progress and verifies delivery",
+    "model": "gpt-6-luna",
+    "species": "sperm_whale",
+    "accent_color": "#3A506B",
+    "app_server_thread_id": null
+  }
+]
