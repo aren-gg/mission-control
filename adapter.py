@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import logging
+import math
 import re
 from pathlib import Path
 from sources import AgentEventSource, MockEventSource, CodexAppServerSource, make_event
@@ -48,6 +49,17 @@ def validate_roster(agents):
             if thread_id in seen_threads:
                 raise ValueError(prefix + ': each live agent must have a distinct thread ID')
             seen_threads.add(thread_id)
+    ids = {agent['id'] for agent in agents}
+    for agent in agents:
+        links = agent.get('linked_agent_ids', [])
+        if not isinstance(links, list) or any(not isinstance(target, str) for target in links):
+            raise ValueError('linked_agent_ids must be a list of agent IDs')
+        if len(links) != len(set(links)):
+            raise ValueError('linked_agent_ids cannot contain duplicates')
+        if agent['id'] in links:
+            raise ValueError('Self-links are not allowed')
+        if any(target not in ids for target in links):
+            raise ValueError('linked_agent_ids contains an unknown agent')
     return agents
 
 
@@ -60,6 +72,9 @@ def load_config(path=BASE_DIR / 'config.json'):
         if command is not None and (not isinstance(command, list) or not command
             or any(not isinstance(part, str) or not part for part in command)):
             raise ValueError('app_server_command must be a nonempty array of command arguments')
+        timeout = config.get('delegation_timeout', 600)
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError('delegation_timeout must be a positive number of seconds')
         return config
     except (OSError, ValueError, TypeError) as exc:
         logging.warning('Invalid settings; using DEMO mock source: %s', exc)
@@ -73,7 +88,8 @@ def create_source(project_root=None, *, agents=None, config=None, roster_path=No
     if config['source'] == 'codex':
         return CodexAppServerSource(agents, command=config.get('app_server_command'),
                                    project_root=root, roster_path=roster_path or root / 'agents.json',
-                                   instructions=instructions, thread_saver=thread_saver)
+                                   instructions=instructions, thread_saver=thread_saver,
+                                   delegation_timeout=config.get('delegation_timeout', 600))
     source = MockEventSource(agents)
     source.config_warning = config.get('warning')
     return source

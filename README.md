@@ -1,107 +1,134 @@
-# Underwater Agent Office
+# Mission Control
 
-Underwater Agent Office is a local desktop dashboard for keeping separate Codex conversations organized by project and role. It is a PySide6 desktop app, **not a website**: it does not run a localhost server or open Chrome. You can have Chrome open normally, but use the desktop window to view and control this app.
+Mission Control is a local desktop workspace for coordinating independent Codex agent conversations across your projects. It is a PySide6 app, not a localhost website; the dashboard does not run in Chrome.
 
-The app starts in **Demo activity** mode. Demo activity is simulated and makes no model calls. Switching to **Codex agents** connects or creates Codex conversations for the selected project's agents. Startup by itself does not start implementation work: after the agents connect, open the Orchestrator or a specialist tab and send it a concrete task.
+The default source is **Demo activity**, which is simulated and makes no model calls. Switch a project to **Codex agents** when you are ready to connect real Codex threads. Starting the app does not start implementation work by itself.
 
-## Start the desktop app
+## Start the app
 
-Install Python 3.11 or newer first. The first launch needs an internet connection to install the Python packages.
+Install Python 3.11 or newer. The first launch needs an internet connection to install the app's Python dependencies.
 
 ### macOS
 
-1. In Finder, open the project folder.
+1. In Finder, open the Mission Control folder.
 2. Double-click `run.command`.
-3. If macOS blocks it, control-click `run.command`, choose **Open**, and confirm. If Finder says the file is not executable, open Terminal in the folder and run `chmod +x run.command` once.
-4. Wait for setup to finish and the desktop window to open. Keep the Terminal window open while using the app; closing it stops the app.
+3. If macOS blocks it, control-click the file, choose **Open**, and confirm. If it is not executable, open Terminal in the folder and run `chmod +x run.command` once.
+4. Keep the Terminal window open while using the app; closing it stops the app.
 
 ### Windows
 
-1. In File Explorer, open the project folder.
+1. In File Explorer, open the Mission Control folder.
 2. Double-click `run.bat`.
-3. Wait for setup to finish and the desktop window to open. Keep the command window open while using the app; closing it stops the app.
+3. Keep the command window open while using the app; closing it stops the app.
 
-For a manual start, open a terminal in the project folder, install `requirements.txt` into a Python 3.11+ environment, then run `python main.py` (on macOS, `python3 main.py`).
+For a manual start, create a Python 3.11+ environment, install `requirements.txt`, and run `python main.py` (on macOS, `python3 main.py`).
 
-## Create your first project
+## Before connecting Codex agents
 
-1. Start the app. The **Office** tab shows the roster and simulated activity.
-2. Use **Add project...** to choose your existing code folder. Give the project a short display name and, if offered, choose a team preset. The project path is the working directory Codex will use.
-3. Select the new project from the project selector. Project rosters, instructions, source settings, and thread IDs are isolated from your other projects.
-4. Open **Manage team...** to add, edit, or remove team members. Start with the included Orchestrator, Front End, Back End, and Mission Control team, or create a smaller team. Save changes in the editor.
-5. Select **Demo activity** to explore the UI without model calls. Click an agent tab, enter a test request, and press **Enter** (use **Shift+Enter** to add a line). The message goes only to the selected agent.
-6. When you are ready to use Codex, select **Codex agents**. Watch the top-right connection badge for **LIVE**, **CONNECTING**, or **DEMO** counts. A configured thread may briefly show **Connecting** in its tab. If Codex cannot connect for one agent, its tab shows a visible error and **DEMO** status.
-7. Open the **Orchestrator** tab and send a concrete task, for example: “Inspect this project and propose the first three implementation tasks. Do not edit files yet.” To delegate a focused task, open **Back End** or **Front End** and message that specialist directly. To reference files, choose **Reference files...** beside the message title; it adds selected project-relative paths to the unsent draft. Review the draft and send it when ready. The picker references files in the selected project; it does not upload or read their contents.
+Install the [Codex CLI](https://learn.chatgpt.com/docs/codex/cli), open Terminal or Command Prompt, run `codex` once, and complete sign-in if prompted. Then open or restart Mission Control and select **Codex agents**. Access to the models selected for your agents depends on your account.
 
-Each visible agent tab represents its own thread and conversation. The Orchestrator may start native Codex subagents inside its own conversation, but those subagents are not automatically separate dashboard tabs or automatically mapped to the other visible agents. Message a specialist tab directly when you want that configured agent's separate conversation to act on a task.
+The app runs one project team at a time. Switching projects while agents are working asks you to confirm because reconnecting may interrupt their current work.
 
-## Before using Codex agents
+## First project: from setup to a task
 
-Install the [Codex CLI](https://learn.chatgpt.com/docs/codex/cli), open Terminal or Command Prompt, run `codex` once, and complete sign-in if prompted. Then open or restart Underwater Agent Office and select **Codex agents**. You need account access to each model selected for your team; access can vary by account.
+1. Start in **Demo activity** to explore without model calls.
+2. Choose **Add project...**, select an existing code folder, and give the project a name. The selected folder becomes Codex's working directory.
+3. Select the project and check its displayed absolute working path. Each project keeps its roster, instructions, source choice, and thread IDs separate.
+4. Open **Manage team...** to review the agents or add, remove, and configure them. Link only agents you want to be able to hand work to.
+5. Select **Codex agents** and wait for the status panel to show **Live**. **Connecting**, **Demo**, and errors are distinct states; setup steps in the guide do not claim a login or connection succeeded.
+6. Open **Setup Guide** for a guided walkthrough. Its buttons open the relevant app controls; it does not change your settings without your action.
+7. Open an agent's conversation and use **Send message** with a specific task. For example, message the Orchestrator: “Inspect this project and list three useful implementation tasks. Do not edit files yet.” For focused work, message a specialist directly. If you want one agent to hand a task to a linked teammate, use **Hand off task** and choose that teammate.
 
-The app runs one active project team at a time. Switching projects while agents are working asks you to confirm because reconnecting can interrupt their current work.
+Each visible agent has its own conversation. Ordinary **Send message** goes only to the selected agent. A handoff is an explicit task to a linked agent and records where the work came from. The dashboard does not automatically forward user messages among agents. A Codex agent may create native Codex subagents inside its own conversation; those native subagents are not automatically linked to dashboard agents or shown as separate dashboard conversations.
 
 ## Projects and working folders
 
-Use the **Project** selector to switch between projects. **Add project...** opens a folder picker; select an existing repository or another folder you want Codex to work in. **Open folder** opens the selected path in Finder or File Explorer. Confirm the displayed absolute path before switching to Codex mode, because that selected folder becomes the Codex working directory.
+Use the **Project** selector to switch projects. **Add project...** lets you select a folder; **Open folder** opens the selected project in Finder or File Explorer. Verify the displayed absolute path before connecting Codex.
 
-Each project's team and source mode are independent. Switching projects closes the previous project's event source and starts the selected project's source. Project configuration and instruction text are stored in the app's managed data folder, not written into the selected code folder. The app does not modify another project's files when you edit configuration.
+Project configuration and instructions live under the app's managed `data/` folder, not in the selected code folder. Switching projects closes the prior event source and connects the selected project's source. The app uses the selected project's path as Codex's working directory.
 
-## Manage agents and instructions
+## Team, links, and conversations
 
-Open **Manage team...** for the selected project.
+Open **Manage team...** to add, remove, or select an agent for editing. The roster supports 1 to 8 agents. Configure its stable ID, display name, role, model, reasoning effort, and instructions. Renaming an agent keeps its ID. Model, effort, role, or instruction changes start a new conversation on the next Codex connection; the prior Codex conversation is retained. Use **New conversation...** when you want a fresh Codex thread without changing those settings.
 
-- **Add agent** creates a team member. Select an existing agent in the list to edit its fields; **Remove** deletes that agent from this project's roster. Between 1 and 8 agents must remain.
-- Set the display name, role, model, reasoning effort, whale species, and accent color. Agent IDs remain stable when you rename an agent.
-- Edit the agent's multiline instructions in the instruction editor. The editor shows the managed instruction file path. Use **Open instruction file** to open that file in your text editor; after editing it externally, use **Reload external edits** to read those changes back before saving.
-- Save validates the roster and instructions. If the editor shows an error, correct the named field and save again.
-- Model, reasoning effort, role, or instruction changes start a fresh Codex conversation the next time this agent connects. The previous Codex conversation is retained by Codex. Cosmetic changes such as the display name, whale species, or accent color preserve the current thread.
+### Link teammates and hand off work
 
-Existing `agents.json`, `config.json`, and `.codex/agents/*.toml` beside the app's `main.py` are imported as defaults on first startup. After migration, use the in-app editor as the current source of truth for managed instructions. The selected project's roster and thread IDs are saved with app-managed project state. The app folder's `config.json` is a legacy import default for the source choice; changing it after migration does not replace the in-app source selection. Codex file references always resolve within the selected code project.
+In the team editor, use **Linked teammates** to choose which agents this agent may hand work to. Links are directed: if Orchestrator links to Back End, that allows Orchestrator to hand off to Back End; it does not automatically create a reverse link. Links stay inside the project and cannot target the same agent, an unknown agent, or a duplicate entry.
 
-## Reuse a team with presets
+In an agent conversation, **Hand off task** explicitly sends work to one of that agent's linked teammates. The target works in its own conversation, and the caller receives the completed result. Busy targets, delegation cycles, unavailable tools, or connection failures are reported as failures; the app does not invent a successful result. Support for agent-to-agent delegation requires the Codex app-server's documented experimental API. If the server does not support it, the app surfaces that limitation.
 
-In **Manage team...**, choose **Save team as preset...**, enter a name, and optionally make it the default team for new projects. A preset stores agent settings and instructions, but never Codex thread IDs or project paths.
+### Attach an existing Codex conversation
 
-Choose a preset when adding a project, or select **Apply preset...** to replace the current project's team. Applying a preset replaces that project's roster and instructions, so confirm the replacement in the app when prompted. Editing a project copied from a preset does not alter the saved preset or any other project's team.
+To link an already existing Codex conversation, enter its ID in **Existing conversation ID** and choose **Attach conversation...**. This explicitly attaches that conversation to the selected agent; it does not discover or map arbitrary Codex child agents. Thread IDs must be unique across the workspace so two agents or projects cannot accidentally share one conversation. Attaching a thread is separate from changing the agent's model or role. Existing or attached conversations support direct chat and manual handoffs. The automatic `delegate_to_agent` tool is registered only when Mission Control creates a new conversation; use **New conversation...** to enable it for an older conversation.
 
-## Demo and Codex connection states
+### Edit or reload the roster JSON
 
-- **DEMO** means the activity is simulated. It is safe to use for exploring, and it never represents a live Codex thread.
-- **Connecting** means the app is starting or resuming that agent's Codex thread.
-- **Live** means that agent is connected to Codex app-server.
+The team editor provides **Open team JSON** and **Reload team JSON** for advanced editing. Keep a backup before editing the file. Open the JSON for the active project's actual roster, make your changes, then use **Reload team JSON** to validate and apply them. Invalid JSON or roster settings produce an error without applying a partial edit. Reloading protects unsaved form changes; respond to the prompt before continuing.
 
-Select **Demo activity** or **Codex agents** in the app. The default is Demo. In Codex mode, an agent with a saved thread ID resumes it. If its ID is empty, the app starts a thread with its selected model, reasoning effort, and role instructions, then saves the new ID for the next launch. If one thread cannot connect, only that agent falls back to Demo and is marked **DEMO** with an error.
+Agent IDs are stable lowercase identifiers and are used by links. Keep IDs unique, preserve managed instruction paths, and make sure each `linked_agent_ids` entry names another agent in the same project. Configuration changes that affect behavior invalidate that agent's attached thread mapping and the next Codex connection starts a fresh conversation.
 
-The app launches `codex app-server` locally by default. For an alternate local executable, set `app_server_command` in the `config.json` beside `main.py` (for example, `["/path/to/codex", "app-server"]`) and restart the app. This is an advanced transport override; source selection still happens in the app. Codex app-server is experimental; use the official [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server) for setup and protocol details. Do not expose an unauthenticated app-server listener to the network.
+The editor shows the managed instruction file path for the selected agent. Choose **Open instruction file** to edit it in your normal editor, then **Reload external edits** in Manage team to bring saved changes into the form. You can also edit instructions directly in the multiline field and choose **Save agent**. Instruction changes start a new conversation the next time Codex connects.
 
-### Where project and agent settings are stored
+To reuse a team, choose **Save team as preset...**, enter a name, and optionally make it the default for new projects. To copy a saved team into the current project, select it under **Team presets** and choose **Apply preset...**; confirm the replacement. Presets copy agent settings, links, and instruction text, but never conversation IDs or another project's paths. Later edits to this project do not change the preset.
 
-The folder containing `main.py` and the launchers is the app folder. Its `workspace.json` stores the project list, source choices, and team presets. Project-specific rosters and managed instruction files are under `data/projects/<project-id>/` in that app folder; the selected code folder remains the Codex working directory and is not used to store these settings. Back up `workspace.json` and `data/` together to preserve your projects and teams. The top-level `agents.json`, `config.json`, and `.codex/agents/*.toml` are first-start import defaults; after migration, use **Manage team...** for current agent settings and instructions.
+## Guided setup
+
+**Setup Guide** is available from the main workspace. Use its **Previous**/**Next** navigation to review project selection, Codex CLI setup, connection status, team editing, links and handoffs, separate conversations, JSON editing, and reusable presets. Guide actions open the corresponding controls. A visited step is only a tutorial step; it does not prove that Codex is signed in or connected.
+
+## Demo, Live, and connection setup
+
+- **Demo** means activity is simulated; it is not a live Codex thread.
+- **Connecting** means the app is starting or resuming the agent's conversation.
+- **Live** means that agent has connected to Codex app-server.
+- An error means the app could not complete the connection or action; read the agent's conversation log for details.
+
+Select **Demo activity** or **Codex agents** in the project controls. In Codex mode, configured thread IDs resume; agents without an ID get a new conversation. A failure for one agent should not make other agents appear disconnected or simulated.
+
+The app launches `codex app-server` locally by default. For a different local command, set `app_server_command` in the `config.json` beside the app's `main.py` and restart. This is an advanced transport override. Read the official [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server) for protocol details. Do not expose an unauthenticated app-server listener to the network.
+
+Interactive approval and user-input requests from app-server are not approved by Mission Control. The desktop currently has no approval UI; it reports the request and leaves the action unapproved. Continue such work in a workflow that can present the approval.
+
+## Where configuration lives
+
+The folder containing `main.py`, `run.command`, and `run.bat` is the app folder. `workspace.json` stores the project list and source choices. The app's `data/projects/<project-id>/` directories store each managed roster and instruction files; reusable team presets are stored with the app state. Back up `workspace.json` and `data/` together.
+
+The top-level `agents.json`, `config.json`, and `.codex/agents/*.toml` beside `main.py` are import defaults on first startup. After migration, use **Manage team...** or **Open team JSON** for the active project's current roster and instructions. The `config.json` beside `main.py` can configure an alternate app-server command; source selection is managed per project in the app.
+
+For example, a managed agent entry uses stable IDs to describe its links and model settings:
+
+```json
+{
+  "id": "orchestrator",
+  "model": "gpt-6-astra",
+  "reasoning_effort": "medium",
+  "linked_agent_ids": ["frontend", "backend"]
+}
+```
+
+Edit the active project's actual file with **Open team JSON**, preserve `id`, instruction paths, and internal fingerprint/generation fields, then choose **Reload team JSON**. Prefer **Attach conversation...** to change a thread ID safely. Keep a backup before editing JSON by hand.
 
 ## Troubleshooting
 
-- **The launcher window closes or says setup failed:** Make sure Python 3.11+ is installed and your internet connection works. Re-run the launcher from Terminal/Command Prompt so you can read the full error.
-- **macOS will not open `run.command`:** Control-click it and choose **Open**. If it is not executable, run `chmod +x run.command` from Terminal in the project folder.
-- **The desktop app does not appear in Chrome:** That is expected. This is a desktop app, not a browser site. Check whether the Terminal or command window reports an error.
-- **Codex agents stay Connecting or switch to DEMO:** Check that the Codex CLI is installed and available as `codex` in the launch environment, that app-server can start, and that the selected project path exists and is accessible. The agent's activity log includes its connection error. To use another local executable, set `app_server_command` in the `config.json` beside `main.py` and restart the app.
-- **A thread is using old behavior:** Change the agent's model, reasoning effort, role, or instructions and save; the app starts a fresh thread on the next Codex connection. Use **New conversation...** to start fresh without changing the agent settings.
-- **You cannot save an agent:** Check that the name and role are filled in, the model and effort are supported, IDs are unique, and the roster contains 1 to 8 agents.
-- **External instruction edits do not appear:** Use **Reload external edits** in the instruction editor, then save the agent.
-- **You want to try the app safely:** Select **Demo activity**. It does not call a model or change project source files.
+- **The launcher exits during setup:** Check that Python 3.11+ is installed and the first-run internet connection is available. Run the launcher from Terminal or Command Prompt to read the error.
+- **macOS blocks `run.command`:** Control-click it and choose **Open**. If needed, run `chmod +x run.command` from Terminal in the app folder.
+- **You expected the app in Chrome:** Mission Control is a desktop application, not a web server. Check the Terminal or command window for launch errors.
+- **Codex agents stay Connecting or show an error:** Confirm the Codex CLI is installed, run `codex` to complete sign-in if requested, verify the selected project folder exists, and check the agent's log. Check account access for the selected model. For a different local executable, configure `app_server_command` beside `main.py`.
+- **Handoff is unavailable or fails:** Confirm the caller has the target listed in **Linked teammates**, the target is not already busy, and Codex app-server supports the experimental dynamic-tool API.
+- **A JSON reload fails:** Restore a valid backup or fix the reported field, then reload again. Do not delete managed instruction files or change their paths in JSON.
+- **You want to try the app safely:** Select **Demo activity**; it makes no model calls.
 
-## Capture screenshots and run tests
+## Screenshots and tests
 
-With the app dependencies installed, run the tests:
+With the app dependencies installed, run:
 
 ```sh
 python -m pytest
 ```
 
-Save an Office screenshot and one screenshot per agent without opening a normal desktop window:
+Capture the overview, agent conversations, team settings, and Setup Guide without opening a normal desktop window:
 
 ```sh
-QT_QPA_PLATFORM=offscreen python main.py --screenshot screenshots/office.png
+QT_QPA_PLATFORM=offscreen python main.py --screenshot /tmp/mission-control.png
 ```
 
-See `CONTRACT.md` for the event protocol, workspace persistence rules, and visual requirements.
+See `CONTRACT.md` for the app-server protocol, workspace persistence rules, and visual requirements.

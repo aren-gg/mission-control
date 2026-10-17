@@ -1,4 +1,4 @@
-"""Launch the local Qt desktop office: python main.py."""
+"""Launch Mission Control: python main.py."""
 from __future__ import annotations
 import argparse
 from pathlib import Path
@@ -10,12 +10,12 @@ from ui.style import apply_style
 from ui.window import MainWindow
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description='Underwater Agent Office desktop dashboard')
-    parser.add_argument('--screenshot',metavar='PNG',help='Save Office and each agent tab, then exit')
+    parser=argparse.ArgumentParser(description='Mission Control desktop workspace')
+    parser.add_argument('--screenshot',metavar='PNG',help='Save Dashboard, conversations, team editor, and Setup Guide, then exit')
     args=parser.parse_args(argv)
-    app=QApplication.instance() or QApplication(sys.argv[:1]);app.setApplicationName('Underwater Agent Office');app.setOrganizationName('Mission Control');apply_style(app)
+    app=QApplication.instance() or QApplication(sys.argv[:1]);app.setApplicationName('Mission Control');app.setOrganizationName('Mission Control');apply_style(app)
     workspace=WorkspaceStore(Path(__file__).resolve().parent);window=MainWindow(workspace=workspace)
-    if args.screenshot:window.resize(1240,1080)
+    if args.screenshot:window.resize(1200,920)
     window.show()
     if args.screenshot:
         def capture():

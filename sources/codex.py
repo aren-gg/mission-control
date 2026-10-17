@@ -17,6 +17,7 @@ from collections import deque
 from pathlib import Path
 from .base import AgentEventSource, make_event
 from .mock import MockEventSource
+from .delegation import DelegationMixin
 
 
 class RpcError(RuntimeError):
@@ -31,11 +32,12 @@ def default_command():
     return [executable or 'codex', 'app-server', '--listen', 'stdio://']
 
 
-class CodexAppServerSource(AgentEventSource):
+class CodexAppServerSource(DelegationMixin, AgentEventSource):
     mode = 'codex'
 
-    def __init__(self, agents, command=None, reconnect_delay=1.0, project_root=None, roster_path=None, request_timeout=20, instructions=None, thread_saver=None):
+    def __init__(self, agents, command=None, reconnect_delay=1.0, project_root=None, roster_path=None, request_timeout=20, instructions=None, thread_saver=None, delegation_timeout=600):
         super().__init__(agents)
+        self._init_delegation(delegation_timeout)
         self.command = command or default_command()
         self.project_root = Path(project_root or Path.cwd()).resolve()
         self.roster_path = Path(roster_path) if roster_path else None
@@ -87,12 +89,14 @@ class CodexAppServerSource(AgentEventSource):
             self._request_id += 1
             request_id = self._request_id
             ready = threading.Event()
-            holder = {}
+            holder = {'_process': self._process}
             self._pending[request_id] = (ready, holder)
         try:
             self._write({'id': request_id, 'method': method, 'params': params})
             if not ready.wait(self.request_timeout):
                 raise ConnectionError('Timed out waiting for ' + method)
+            if 'transport_error' in holder:
+                raise ConnectionError(holder['transport_error'])
             if 'error' in holder:
                 raise RpcError(str(holder['error']))
             return holder.get('result', {})
@@ -112,18 +116,20 @@ class CodexAppServerSource(AgentEventSource):
                     if 'id' in message and 'method' not in message:
                         with self._request_lock:
                             pending = self._pending.get(message['id'])
-                        if pending:
+                        if pending and pending[1].get('_process') is process:
                             pending[1].update(message)
                             pending[0].set()
+                    elif 'id' in message and message.get('method') == 'item/tool/call':
+                        self._handle_tool_request(message, process)
                     elif 'id' in message:
                         # Approval and interactive questions require a human UI.
                         # Never silently approve a server-initiated action.
                         self._write({'id': message['id'], 'error': {'code': -32601,
-                                     'message': 'Handle approvals and interactive input in Codex; this dashboard has no approval dialog.'}})
+                                     'message': 'This dashboard cannot present or approve interactive requests. The action was not approved. Use a workflow with an approval UI, then retry.'}})
                         agent_id = self._thread_agents.get(message.get('params', {}).get('threadId'))
                         if agent_id:
-                            self._status(agent_id, 'waiting', 'Action needs attention in Codex')
-                            self._publish(make_event(agent_id, 'error', message='Interactive request needs Codex',
+                            self._status(agent_id, 'waiting', 'Interactive action was not approved')
+                            self._publish(make_event(agent_id, 'error', message='Dashboard cannot approve this interactive action',
                                                      detail=message.get('method', 'Unknown request')))
                     elif 'method' in message:
                         self._notification(message['method'], message.get('params', {}))
@@ -135,8 +141,9 @@ class CodexAppServerSource(AgentEventSource):
             with self._request_lock:
                 pending = list(self._pending.values())
             for ready, holder in pending:
-                holder['error'] = 'App-server disconnected'
-                ready.set()
+                if holder.get('_process') is process:
+                    holder['transport_error'] = 'App-server disconnected'
+                    ready.set()
 
     def _read_stderr(self, process):
         try:
@@ -150,7 +157,7 @@ class CodexAppServerSource(AgentEventSource):
         params = {'model': agent['model'], 'cwd': str(self.project_root)}
         if self.instructions is not None:
             instructions = f"Your role: {agent['role']}. Work within the selected project and report public progress clearly.\n\n" + self.instructions.get(agent['id'], '')
-            params['developerInstructions'] = instructions
+            params['developerInstructions'] = instructions + self._delegation_instructions(agent)
             params['config'] = {'model_reasoning_effort': agent.get('reasoning_effort', 'medium')}
             return params
         filenames = {'orchestrator': 'orchestrator.toml', 'frontend': 'frontend-implementor.toml',
@@ -167,7 +174,7 @@ class CodexAppServerSource(AgentEventSource):
                     params['config'] = {'model_reasoning_effort': effort}
             except (OSError, ValueError):
                 pass
-        params['developerInstructions'] = instructions
+        params['developerInstructions'] = instructions + self._delegation_instructions(agent)
         return params
 
     def _persist_ids(self):
@@ -175,10 +182,11 @@ class CodexAppServerSource(AgentEventSource):
             return
         # Read again so unrelated roster edits are not overwritten.
         roster = json.loads(self.roster_path.read_text(encoding='utf-8'))
-        mapping = {a['id']: a.get('app_server_thread_id') for a in self.agents}
+        mapping = {a['id']: a.get('app_server_thread_id') for a in self.agents if a.get('delegation_tool_version') == 1}
         for agent in roster:
             if agent['id'] in mapping and mapping[agent['id']]:
                 agent['app_server_thread_id'] = mapping[agent['id']]
+                agent['delegation_tool_version'] = 1
         from workspace import atomic_json
         atomic_json(self.roster_path, roster)
 
@@ -189,7 +197,7 @@ class CodexAppServerSource(AgentEventSource):
         self._reader = threading.Thread(target=self._read_stdout, args=(self._process,), daemon=True)
         self._reader.start()
         threading.Thread(target=self._read_stderr, args=(self._process,), daemon=True).start()
-        self._rpc('initialize', {'clientInfo': {'name': 'underwater_agent_office', 'title': 'Underwater Agent Office', 'version': '1.0.0'}})
+        self._rpc('initialize', {'clientInfo': {'name': 'underwater_agent_office', 'title': 'Underwater Agent Office', 'version': '1.0.0'}, 'capabilities': {'experimentalApi': True}})
         self._write({'method': 'initialized', 'params': {}})
         for agent in self.agents:
             agent_id = agent['id']
@@ -203,11 +211,14 @@ class CodexAppServerSource(AgentEventSource):
                     params.update({'threadId': thread_id, 'excludeTurns': True})
                     result = self._rpc('thread/resume', params)
                 else:
-                    result = self._rpc('thread/start', self._start_params(agent))
+                    params = self._start_params(agent)
+                    params['dynamicTools'] = [self._delegation_tool()]
+                    result = self._rpc('thread/start', params)
                     thread_id = result.get('thread', {}).get('id')
                     if not isinstance(thread_id, str) or not thread_id:
                         raise RpcError('thread/start did not return a thread ID')
                     agent['app_server_thread_id'] = thread_id
+                    agent['delegation_tool_version'] = 1
                     self._thread_agents[thread_id] = agent_id
                     try:
                         if self.thread_saver:
@@ -219,7 +230,13 @@ class CodexAppServerSource(AgentEventSource):
                 self._hydrate(agent_id, thread_id, result)
                 self._ready.add(agent_id)
                 self._ever_connected.add(agent_id)
-                self._status(agent_id, 'idle', 'Live Codex thread connected')
+                if result.get('thread', {}).get('status', {}).get('type') == 'active':
+                    self._busy_agents.add(agent_id)
+                    self._status(agent_id, 'working', 'Existing Codex turn is active')
+                else:
+                    self._status(agent_id, 'idle', 'Live Codex thread connected')
+                if agent.get('linked_agent_ids') and agent.get('delegation_tool_version') != 1:
+                    self._publish(make_event(agent_id, 'error', message='Automatic delegation unavailable for this older conversation', detail='Chat and manual handoffs work. Use New conversation to register the delegation tool; the previous Codex conversation is retained.'))
             except RpcError as exc:
                 self._fallback(agent_id, 'Could not connect this Codex thread', str(exc))
 
@@ -257,7 +274,10 @@ class CodexAppServerSource(AgentEventSource):
         self._status(agent_id, 'error', 'DEMO fallback: Codex connection failed')
         if self._mock:
             self._mock.close()
-        self._mock = MockEventSource([a for a in self.agents if a['id'] in self._demo_agents])
+        mock_agents = [{**agent, 'linked_agent_ids': [target for target in agent.get('linked_agent_ids', [])
+                        if target in self._demo_agents]}
+                       for agent in self.agents if agent['id'] in self._demo_agents]
+        self._mock = MockEventSource(mock_agents)
         self._mock.subscribe(self._publish)
         self._mock.start()
 
@@ -270,21 +290,15 @@ class CodexAppServerSource(AgentEventSource):
                 while not self._stop.is_set():
                     if self._process.poll() is not None:
                         raise ConnectionError('App-server exited: ' + '\n'.join(self._stderr))
+                    self._expire_tasks()
                     try:
-                        agent_id, content = self._outbox.get(timeout=.2)
+                        context = self._outbox.get(timeout=.2)
                     except queue.Empty:
                         continue
-                    if agent_id not in self._ready:
-                        self._publish(make_event(agent_id, 'error', message='Message was not sent; reconnect and try again'))
-                        continue
-                    thread_id = next(a['app_server_thread_id'] for a in self.agents if a['id'] == agent_id)
-                    try:
-                        self._rpc('turn/start', {'threadId': thread_id, 'input': [{'type': 'text', 'text': content}]})
-                    except RpcError as exc:
-                        self._publish(make_event(agent_id, 'error', message='Codex rejected the message', detail=str(exc)))
-                        self._status(agent_id, 'error', 'Codex rejected the message')
+                    self._start_queued_task(context)
             except (OSError, ConnectionError, RpcError, ValueError) as exc:
                 self._ready.clear()
+                self._fail_tasks('Codex disconnected before work completed')
                 attempt += 1
                 delay = min(15, self.reconnect_delay * (2 ** min(attempt - 1, 4)))
                 for agent in self.agents:
@@ -305,6 +319,7 @@ class CodexAppServerSource(AgentEventSource):
                 self._terminate()
 
     def _notification(self, method, params):
+        self._track_notification(method, params)
         if not isinstance(params, dict):
             return
         thread_id = params.get('threadId') or params.get('thread', {}).get('id')
@@ -391,10 +406,7 @@ class CodexAppServerSource(AgentEventSource):
             return self._mock.send_message(agent_id, content)
         if agent_id not in self._ready:
             raise RuntimeError('Codex is not connected for this agent yet. Check its activity log.')
-        message_id = self._user_message(agent_id, content)
-        self._user_echoes.setdefault(agent_id, []).append(content)
-        self._outbox.put((agent_id, content))
-        return message_id
+        return self._submit_user(agent_id, content)
 
     def _terminate(self):
         process = self._process
@@ -412,6 +424,8 @@ class CodexAppServerSource(AgentEventSource):
                     stream.close()
 
     def close(self):
+        self._stop.set()
+        self._fail_tasks('Event source closed before work completed')
         super().close()
         if self._mock:
             self._mock.close()

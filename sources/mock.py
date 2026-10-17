@@ -2,6 +2,7 @@
 import queue
 import threading
 from uuid import uuid4
+from concurrent.futures import Future
 from .base import AgentEventSource, make_event
 
 
@@ -12,6 +13,7 @@ class MockEventSource(AgentEventSource):
         self._messages = queue.Queue()
         self._thread = None
         self._step = 0
+        self._delegations = {}
 
     def start(self):
         if self._started or self._stop.is_set():
@@ -30,7 +32,7 @@ class MockEventSource(AgentEventSource):
                 message = self._messages.get(timeout=self.interval)
                 if message is None:
                     break
-                agent_id, content = message
+                agent_id, content, delegation = message
             except queue.Empty:
                 self._tick()
                 continue
@@ -43,6 +45,13 @@ class MockEventSource(AgentEventSource):
                 'This is a simulated reply. Choose "Codex agents" under Activity source '
                 "to start or resume this project's agents.")))
             self._status(agent_id, 'idle', 'Demo: replied to your message')
+            if delegation:
+                sender, delegation_id, future = delegation
+                text = f'[DEMO] Simulated result for: {content}'
+                self._delegation_result(sender, agent_id, text, delegation_id)
+                if not future.done():
+                    future.set_result(text)
+                self._delegations.pop(delegation_id, None)
 
     def _tick(self):
         if not self.agents:
@@ -56,8 +65,9 @@ class MockEventSource(AgentEventSource):
         states = [('thinking', 'Demo: planning the next change'), ('working', 'Demo: implementing assigned task'),
                   ('tool_call', 'Demo: inspecting project files'), ('working', 'Demo: reviewing implementation'),
                   ('waiting', 'Demo: waiting for a teammate'), ('idle', 'Demo: task complete')]
-        if phase == 0 and agent_id == 'orchestrator' and count > 1:
-            target = self.agents[(index + 1) % count]
+        available_targets = [a for a in self.agents if a['id'] in agent.get('linked_agent_ids', []) and a['id'] != agent_id]
+        if phase == 0 and available_targets:
+            target = available_targets[0]
             self._status(agent_id, 'working', 'Delegating to ' + target['name'])
             self._publish(make_event(agent_id, 'message', message_id=str(uuid4()), role='assistant',
                                     content=f"[DEMO delegation] Passing the task to {target['name']} ({target['id']})."))
@@ -79,11 +89,27 @@ class MockEventSource(AgentEventSource):
     def send_message(self, agent_id, content):
         content = self._validate_message(agent_id, content)
         message_id = self._user_message(agent_id, content)
-        self._messages.put((agent_id, content))
+        self._messages.put((agent_id, content, None))
         return message_id
+
+    def delegate_message(self, from_agent_id, to_agent_id, content):
+        content = self._check_delegation(from_agent_id, to_agent_id, content)
+        with self._lock:
+            if any(target == to_agent_id for target, _future in self._delegations.values()):
+                raise RuntimeError('Target agent is busy with a delegated task')
+            delegation_id = str(uuid4())
+            future = Future()
+            self._delegations[delegation_id] = (to_agent_id, future)
+        routed = self._delegation_started(from_agent_id, to_agent_id, content, delegation_id)
+        self._messages.put((to_agent_id, routed, (from_agent_id, delegation_id, future)))
+        return future
 
     def close(self):
         super().close()
+        for _target, future in list(self._delegations.values()):
+            if not future.done():
+                future.set_exception(RuntimeError('Event source closed before delegation completed'))
+        self._delegations.clear()
         self._messages.put(None)
         if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=1)

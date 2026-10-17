@@ -18,7 +18,7 @@ from uuid import uuid4
 from adapter import BASE_DIR, load_config, validate_roster
 
 EFFORTS = {'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'}
-FIELDS = ('id', 'name', 'role', 'model', 'reasoning_effort', 'species', 'accent_color')
+FIELDS = ('id', 'name', 'role', 'model', 'reasoning_effort', 'species', 'accent_color', 'linked_agent_ids')
 LEGACY_ROLES = {'orchestrator': 'orchestrator.toml', 'frontend': 'frontend-implementor.toml',
                 'backend': 'backend-implementor.toml', 'mission_control': 'mission-control.toml'}
 
@@ -46,6 +46,8 @@ def atomic_json(path, value):
 def behavior_fingerprint(agent, instructions):
     behavior = {key: agent.get(key, 'medium' if key == 'reasoning_effort' else '')
                 for key in ('model', 'reasoning_effort', 'role')}
+    if agent.get('linked_agent_ids'):
+        behavior['linked_agent_ids'] = sorted(agent['linked_agent_ids'])
     behavior['instructions'] = instructions
     return hashlib.sha256(json.dumps(behavior, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
 
@@ -161,15 +163,26 @@ class WorkspaceStore:
         agents = json.loads(path.read_text(encoding='utf-8'))
         validate_roster(agents)
         changed = False
+        candidate = []
         for agent in agents:
             self._valid_id(agent['id'])
             expected = 'instructions/' + agent['id'] + '.md'
             if agent.get('instructions_file', expected) != expected:
                 raise ValueError('Instruction paths must use the managed file for that agent')
+            self._assert_thread_unique(agent.get('app_server_thread_id'), project_id, agent['id'])
             text = self._instruction_file(project_id, agent['id']).read_text(encoding='utf-8')
+            candidate.append((agent, text))
+        # Complete validation/read phase first: a later invalid instruction path
+        # must not cause partial resets or persistence of earlier entries.
+        for agent, text in candidate:
+            agent.setdefault('linked_agent_ids', [])
+            if agent.get('delegation_tool_version') and self._state.get('dynamic_tool_threads', {}).get(agent.get('app_server_thread_id')) != {'project_id': project_id, 'agent_id': agent['id']}:
+                agent.pop('delegation_tool_version', None)
+                changed = True
             fingerprint = behavior_fingerprint(agent, text)
             if fingerprint != agent.get('behavior_fingerprint'):
                 agent['app_server_thread_id'] = None
+                agent.pop('delegation_tool_version', None)
                 agent['behavior_fingerprint'] = fingerprint
                 agent['thread_generation'] = uuid4().hex
                 changed = True
@@ -279,7 +292,11 @@ class WorkspaceStore:
     def instructions_path(self, agent_id, project_id=None):
         with self._lock:
             project = self._project(project_id)
-            if not any(a['id'] == agent_id for a in self._read_agents(project['id'])):
+            self._valid_id(agent_id)
+            # Pure path lookup remains useful while the user repairs an invalid
+            # advanced roster edit. Do not commit derived fingerprint updates.
+            roster = json.loads(self._roster_path(project['id']).read_text(encoding='utf-8'))
+            if not isinstance(roster, list) or not any(isinstance(a, dict) and a.get('id') == agent_id for a in roster):
                 raise ValueError('Unknown agent: ' + str(agent_id))
             return self._instruction_file(project['id'], agent_id)
 
@@ -302,6 +319,7 @@ class WorkspaceStore:
             if agent.get('instructions_file') not in (None, 'instructions/' + agent_id + '.md'):
                 raise ValueError('Instruction paths must use the managed file for that agent')
             saved.setdefault('reasoning_effort', 'medium')
+            saved.setdefault('linked_agent_ids', copy.deepcopy(old.get('linked_agent_ids', [])) if old else [])
             if not isinstance(saved['reasoning_effort'], str) or saved['reasoning_effort'] not in EFFORTS:
                 raise ValueError('Unsupported reasoning effort; use low, medium, high, xhigh, max, ultra, minimal or none')
             saved['instructions_file'] = 'instructions/' + agent_id + '.md'
@@ -309,6 +327,8 @@ class WorkspaceStore:
             same_behavior = old and old['behavior_fingerprint'] == saved['behavior_fingerprint']
             saved['app_server_thread_id'] = old.get('app_server_thread_id') if same_behavior else None
             saved['thread_generation'] = old.get('thread_generation') if same_behavior else uuid4().hex
+            if same_behavior and old.get('delegation_tool_version'):
+                saved['delegation_tool_version'] = old['delegation_tool_version']
             updated = [saved if a['id'] == agent_id else a for a in roster]
             if old is None:
                 updated.append(saved)
@@ -325,7 +345,17 @@ class WorkspaceStore:
                 raise ValueError('Unknown agent: ' + str(agent_id))
             if len(roster) <= 1:
                 raise ValueError('Keep at least one agent in the project')
-            atomic_json(self._roster_path(project['id']), [a for a in roster if a['id'] != agent_id])
+            cleaned = [a for a in roster if a['id'] != agent_id]
+            for agent in cleaned:
+                if agent_id in agent.get('linked_agent_ids', []):
+                    agent['linked_agent_ids'] = [target for target in agent['linked_agent_ids'] if target != agent_id]
+                    agent['app_server_thread_id'] = None
+                    agent.pop('delegation_tool_version', None)
+                    agent['thread_generation'] = uuid4().hex
+                    text = self._instruction_file(project['id'], agent['id']).read_text(encoding='utf-8')
+                    agent['behavior_fingerprint'] = behavior_fingerprint(agent, text)
+            validate_roster(cleaned)
+            atomic_json(self._roster_path(project['id']), cleaned)
             # Keep its instructions on disk as a recoverable local record.
 
     def save_preset(self, name, project_id=None, make_default=False):
@@ -360,9 +390,53 @@ class WorkspaceStore:
             if agent is None:
                 raise ValueError('Unknown agent: ' + str(agent_id))
             agent['app_server_thread_id'] = None
+            agent.pop('delegation_tool_version', None)
             # A generation guards against a stale source restoring the old mapping.
             agent['thread_generation'] = uuid4().hex
             atomic_json(self._roster_path(project['id']), roster)
+
+    def roster_path(self, project_id=None):
+        with self._lock:
+            return self._roster_path(self._project(project_id)['id'])
+
+    def reload_project_config(self, project_id=None):
+        with self._lock:
+            pid = self._project(project_id)['id']
+            # Candidate validation precedes _read_agents' fingerprint commit.
+            roster = json.loads(self._roster_path(pid).read_text(encoding='utf-8'))
+            validate_roster(roster)
+            for agent in roster:
+                self._assert_thread_unique(agent.get('app_server_thread_id'), pid, agent['id'])
+            return copy.deepcopy(self._read_agents(pid))
+
+    def _assert_thread_unique(self, thread_id, project_id, agent_id):
+        if not thread_id:
+            return
+        for project in self._state['projects']:
+            roster = json.loads(self._roster_path(project['id']).read_text(encoding='utf-8'))
+            for agent in roster:
+                if project['id'] == project_id and agent['id'] == agent_id:
+                    continue
+                if agent.get('app_server_thread_id') == thread_id:
+                    raise ValueError('That conversation is already attached to another agent in this workspace')
+
+    def link_existing_thread(self, agent_id, thread_id, project_id=None):
+        if not isinstance(thread_id, str) or not thread_id.strip():
+            raise ValueError('Enter a nonempty Codex conversation ID')
+        thread_id = thread_id.strip()
+        with self._lock:
+            project = self._project(project_id)
+            roster = self._read_agents(project['id'])
+            agent = next((a for a in roster if a['id'] == agent_id), None)
+            if agent is None:
+                raise ValueError('Unknown agent: ' + str(agent_id))
+            self._assert_thread_unique(thread_id, project['id'], agent_id)
+            agent['app_server_thread_id'] = thread_id
+            agent.pop('delegation_tool_version', None)
+            agent['thread_generation'] = uuid4().hex
+            validate_roster(roster)
+            atomic_json(self._roster_path(project['id']), roster)
+            return copy.deepcopy(agent)
 
     def _save_thread(self, project_id, snapshot, thread_id):
         with self._lock:
@@ -370,9 +444,13 @@ class WorkspaceStore:
             current = next((a for a in roster if a['id'] == snapshot['id']), None)
             if current is None or current['behavior_fingerprint'] != snapshot.get('behavior_fingerprint') or current.get('thread_generation') != snapshot.get('thread_generation') or current.get('app_server_thread_id') not in (None, snapshot.get('app_server_thread_id')):
                 raise ValueError('Agent settings changed; discarded a stale thread mapping')
+            self._assert_thread_unique(thread_id, project_id, current['id'])
             current['app_server_thread_id'] = thread_id
+            current['delegation_tool_version'] = 1
+            self._state.setdefault('dynamic_tool_threads', {})[thread_id] = {'project_id': project_id, 'agent_id': current['id']}
             validate_roster(roster)
             atomic_json(self._roster_path(project_id), roster)
+            self._persist()
 
     def create_source(self, project_id=None):
         from adapter import create_source

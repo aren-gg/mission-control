@@ -2,8 +2,8 @@
 from pathlib import Path
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QComboBox, QCheckBox, QPushButton, QLabel, QListWidget, QPlainTextEdit, QDialogButtonBox, QMessageBox, QInputDialog, QScrollArea, QWidget
-from sprites import SPECIES, PALETTE
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QComboBox, QCheckBox, QPushButton, QLabel, QListWidget, QPlainTextEdit, QDialogButtonBox, QMessageBox, QInputDialog, QScrollArea, QWidget, QListWidgetItem
+
 
 def text_label(text,wrap=False):
     item=QLabel(str(text));item.setTextFormat(Qt.TextFormat.PlainText);item.setWordWrap(wrap);item.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse);return item
@@ -31,17 +31,19 @@ class TeamDialog(QDialog):
         right=QVBoxLayout();form=QFormLayout();form.setSpacing(10);self.agent_id=QLineEdit();self.agent_id.setPlaceholderText('Leave blank to generate a stable ID');form.addRow('Stable ID',self.agent_id);self.name=QLineEdit();form.addRow('Display name',self.name);self.role=QLineEdit();form.addRow('Role',self.role)
         self.model=QComboBox();self.model.setEditable(True);self.model.addItems(['gpt-6-astra','gpt-6.1-sol','gpt-6-sol','gpt-6-luna']);form.addRow('Model',self.model)
         self.effort=QComboBox();self.effort.setEditable(True);self.effort.addItems(['low','medium','high','xhigh','max','ultra']);self.effort.setCurrentText('medium');form.addRow('Reasoning effort',self.effort)
-        self.species=QComboBox()
-        for species in SPECIES:self.species.addItem(species.replace('_',' ').title(),species)
-        form.addRow('Whale species',self.species);self.accent=QComboBox()
-        names=['Deep ink','Midnight','Slate blue','Sea teal','Bright aqua','Warm paper','Sand','Coral','Warning red','Kelp','Leaf','Lime','Wood','Soft gray','Ice','White']
-        for name,color in zip(names,PALETTE):self.accent.addItem(name+'  '+color,color)
-        form.addRow('Accent color',self.accent);right.addLayout(form)
+        right.addLayout(form)
+        right.addWidget(text_label('Linked teammates'))
+        self.links=QListWidget();self.links.setAccessibleName('Linked teammates');self.links.setMaximumHeight(130);right.addWidget(self.links)
+        linked_hint=text_label('Select teammates this agent may delegate to. Each keeps a separate conversation; links are one-way.',True);linked_hint.setObjectName('muted');right.addWidget(linked_hint)
         right.addWidget(text_label('Agent instructions'));self.instructions=QPlainTextEdit();self.instructions.setAccessibleName('Agent instructions');self.instructions.setMinimumHeight(150);right.addWidget(self.instructions,1)
         self.instruction_path=text_label('',True);self.instruction_path.setObjectName('muted');right.addWidget(self.instruction_path);filetools=QHBoxLayout();self.open_file=QPushButton('Open instruction file');self.open_file.setObjectName('secondary');self.open_file.clicked.connect(self.open_instructions);filetools.addWidget(self.open_file);self.reload=QPushButton('Reload external edits');self.reload.setObjectName('secondary');self.reload.clicked.connect(self.reload_instructions);filetools.addWidget(self.reload);right.addLayout(filetools)
-        notice=text_label('Changing the model, effort, role, or instructions starts a new conversation on the next Codex connection. Previous conversations remain in Codex. Name and appearance changes keep the current conversation.',True);notice.setObjectName('muted');right.addWidget(notice)
+        notice=text_label('Changing the model, effort, role, or instructions starts a new conversation on the next Codex connection. Previous conversations remain in Codex. Renaming an agent keeps its current conversation.',True);notice.setObjectName('muted');right.addWidget(notice)
+        self.thread_status=text_label('',True);self.thread_status.setObjectName('muted');right.addWidget(self.thread_status)
+        thread_form=QHBoxLayout();self.existing_thread=QLineEdit();self.existing_thread.setPlaceholderText('Existing conversation ID');self.attach=QPushButton('Attach conversation...');self.attach.setObjectName('secondary');self.attach.clicked.connect(self.attach_conversation);thread_form.addWidget(self.existing_thread,1);thread_form.addWidget(self.attach);right.addLayout(thread_form)
+        right.addWidget(text_label('Attach is an explicit action. Use a conversation intended for this project. Older attached conversations may need New conversation to enable the automatic delegation tool.',True))
         actions=QHBoxLayout();self.fresh=QPushButton('New conversation...');self.fresh.setObjectName('secondary');self.fresh.clicked.connect(self.new_conversation);actions.addWidget(self.fresh);actions.addStretch();self.save=QPushButton('Save agent');self.save.clicked.connect(self.save_agent);right.addLayout(actions);editor=QWidget();editor.setLayout(right);scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(editor);scroll.setMinimumWidth(440);content.addWidget(scroll,3);outer.addLayout(content,1)
-        self.feedback=text_label('',True);self.feedback.setObjectName('section');outer.addWidget(self.feedback);buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(self.reject);footer=QHBoxLayout();footer.addWidget(self.save);footer.addStretch();footer.addWidget(buttons);outer.addLayout(footer)
+        self.json_path=text_label('Team JSON: '+str(self.store.roster_path(self.project_id)),True);self.json_path.setObjectName('muted');outer.addWidget(self.json_path)
+        self.feedback=text_label('',True);self.feedback.setObjectName('section');outer.addWidget(self.feedback);buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(self.reject);footer=QHBoxLayout();footer.addWidget(self.save);open_json=QPushButton('Open team JSON');open_json.setObjectName('secondary');open_json.clicked.connect(self.open_json);footer.addWidget(open_json);reload_json=QPushButton('Reload team JSON');reload_json.setObjectName('secondary');reload_json.clicked.connect(self.reload_json);footer.addWidget(reload_json);footer.addStretch();footer.addWidget(buttons);outer.addLayout(footer)
         self.refresh_presets();self.refresh_agents()
     def refresh_presets(self):
         self.presets.clear()
@@ -55,13 +57,14 @@ class TeamDialog(QDialog):
         if not self.confirm_unsaved():
             previous=next((i for i,a in enumerate(self.agents) if a['id']==self.current_id),-1)
             self.agent_list.blockSignals(True);self.agent_list.setCurrentRow(previous);self.agent_list.blockSignals(False);return
-        a=self.agents[index];self.current_id=a['id'];self.agent_id.setReadOnly(True);self.agent_id.setText(a['id']);self.name.setText(a['name']);self.role.setText(a.get('role',''));self.model.setCurrentText(a.get('model','gpt-6.1-sol'));self.effort.setCurrentText(a.get('reasoning_effort','medium'));self.species.setCurrentIndex(max(0,self.species.findData(a.get('species','blue_whale'))));self.accent.setCurrentIndex(max(0,self.accent.findData(a.get('accent_color','#5BC0BE'))));self.instructions.setPlainText(self.store.read_instructions(a['id'],self.project_id));self.instruction_path.setText(str(self.store.instructions_path(a['id'],self.project_id)));self.open_file.setEnabled(True);self.reload.setEnabled(True);self.fresh.setEnabled(True);self.remove.setEnabled(len(self.agents)>1);self.feedback.clear();self._saved_form=self.form_snapshot();self.instructions.document().setModified(False)
+        a=self.agents[index];self.current_id=a['id'];self.agent_id.setReadOnly(True);self.agent_id.setText(a['id']);self.name.setText(a['name']);self.role.setText(a.get('role',''));self.model.setCurrentText(a.get('model','gpt-6.1-sol'));self.effort.setCurrentText(a.get('reasoning_effort','medium'));self.populate_links(a.get('linked_agent_ids',[]));self.thread_status.setText('Current conversation: '+(a.get('app_server_thread_id') or 'A new conversation will be created when Codex connects.'));self.existing_thread.clear();self.attach.setEnabled(True);self.instructions.setPlainText(self.store.read_instructions(a['id'],self.project_id));self.instruction_path.setText(str(self.store.instructions_path(a['id'],self.project_id)));self.open_file.setEnabled(True);self.reload.setEnabled(True);self.fresh.setEnabled(True);self.remove.setEnabled(len(self.agents)>1);self.feedback.clear();self._saved_form=self.form_snapshot();self.instructions.document().setModified(False)
     def add_agent(self):
         if not self.confirm_unsaved():return
-        self.agent_list.setCurrentRow(-1);self.current_id=None;self.agent_id.setReadOnly(False);self.agent_id.clear();self.name.clear();self.role.clear();self.model.setCurrentText('gpt-6.1-sol');self.effort.setCurrentText('medium');self.instructions.clear();self.instruction_path.setText('An instruction file is created when you save this agent.');self.open_file.setEnabled(False);self.reload.setEnabled(False);self.fresh.setEnabled(False);self.remove.setEnabled(False);self.name.setFocus();self.feedback.setText('New agent - complete the fields, then save.');self._saved_form=self.form_snapshot()
+        self.agent_list.setCurrentRow(-1);self.current_id=None;self.agent_id.setReadOnly(False);self.agent_id.clear();self.name.clear();self.role.clear();self.model.setCurrentText('gpt-6.1-sol');self.effort.setCurrentText('medium');self.populate_links([]);self.existing_thread.clear();self.attach.setEnabled(False);self.thread_status.setText('Save this agent before attaching a conversation.');self.instructions.clear();self.instruction_path.setText('An instruction file is created when you save this agent.');self.open_file.setEnabled(False);self.reload.setEnabled(False);self.fresh.setEnabled(False);self.remove.setEnabled(False);self.name.setFocus();self.feedback.setText('New agent - complete the fields, then save.');self._saved_form=self.form_snapshot()
     def agent_values(self):
         base=next((dict(a) for a in self.agents if a['id']==self.current_id),{})
-        base.update(name=self.name.text().strip(),role=self.role.text().strip(),model=self.model.currentText().strip(),reasoning_effort=self.effort.currentText().strip(),species=self.species.currentData(),accent_color=self.accent.currentData())
+        base.setdefault('species','blue_whale');base.setdefault('accent_color','#5BC0BE')
+        base.update(name=self.name.text().strip(),role=self.role.text().strip(),model=self.model.currentText().strip(),reasoning_effort=self.effort.currentText().strip(),linked_agent_ids=self.selected_links())
         aid=self.current_id or self.agent_id.text().strip()
         if aid:base['id']=aid
         return base
@@ -81,7 +84,7 @@ class TeamDialog(QDialog):
     def open_instructions(self):
         if self.current_id:QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.store.instructions_path(self.current_id,self.project_id))))
     def reload_instructions(self):
-        if not self.current_id or not self.before_apply():return
+        if not self.current_id or not self.confirm_unsaved() or not self.before_apply():return
         if self.instructions.document().isModified() and QMessageBox.question(self,'Reload instructions?','Replace the unsaved editor text with the instruction file on disk?')!=QMessageBox.StandardButton.Yes:return
         try:text=self.store.read_instructions(self.current_id,self.project_id);self.store.list_agents(self.project_id)
         except Exception as exc:error(self,exc);return
@@ -110,7 +113,7 @@ class TeamDialog(QDialog):
         self._saved_form=None;self.changed=True;self.refresh_agents();self.feedback.setText('Preset copied into this project. Close the editor to reconnect.')
 
     def form_snapshot(self):
-        return {'id':self.agent_id.text(),'name':self.name.text(),'role':self.role.text(),'model':self.model.currentText(),'effort':self.effort.currentText(),'species':self.species.currentData(),'accent':self.accent.currentData(),'instructions':self.instructions.toPlainText()}
+        return {'id':self.agent_id.text(),'name':self.name.text(),'role':self.role.text(),'model':self.model.currentText(),'effort':self.effort.currentText(),'links':self.selected_links(),'instructions':self.instructions.toPlainText()}
     def confirm_unsaved(self):
         if self._saved_form is None or self.form_snapshot()==self._saved_form:return True
         choice=QMessageBox.question(self,'Unsaved agent changes','Save your changes before continuing?',QMessageBox.StandardButton.Save|QMessageBox.StandardButton.Discard|QMessageBox.StandardButton.Cancel,QMessageBox.StandardButton.Save)
@@ -118,9 +121,33 @@ class TeamDialog(QDialog):
         if choice==QMessageBox.StandardButton.Save:return self.save_agent()
         self.restore_form(self._saved_form);return True
     def restore_form(self,values):
-        self.agent_id.setText(values['id']);self.name.setText(values['name']);self.role.setText(values['role']);self.model.setCurrentText(values['model']);self.effort.setCurrentText(values['effort']);self.species.setCurrentIndex(self.species.findData(values['species']));self.accent.setCurrentIndex(self.accent.findData(values['accent']));self.instructions.setPlainText(values['instructions'])
+        self.agent_id.setText(values['id']);self.name.setText(values['name']);self.role.setText(values['role']);self.model.setCurrentText(values['model']);self.effort.setCurrentText(values['effort']);self.populate_links(values['links']);self.instructions.setPlainText(values['instructions'])
     def reject(self):
         if self.confirm_unsaved():super().reject()
     def closeEvent(self,event):
         if not self.confirm_unsaved():event.ignore();return
         super().closeEvent(event)
+
+    def populate_links(self,selected):
+        self.links.clear()
+        for agent in self.agents:
+            if agent['id']==self.current_id:continue
+            item=QListWidgetItem(agent['name']);item.setData(Qt.ItemDataRole.UserRole,agent['id']);item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable);item.setCheckState(Qt.CheckState.Checked if agent['id'] in selected else Qt.CheckState.Unchecked);self.links.addItem(item)
+    def selected_links(self):
+        return [self.links.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.links.count()) if self.links.item(i).checkState()==Qt.CheckState.Checked]
+    def open_json(self):
+        if not self.confirm_unsaved():return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.store.roster_path(self.project_id))))
+    def reload_json(self):
+        if not self.confirm_unsaved() or not self.before_apply():return
+        try:self.store.reload_project_config(self.project_id)
+        except Exception as exc:error(self,exc);return
+        self._saved_form=None;self.changed=True;self.refresh_agents();self.feedback.setText('Team JSON validated and reloaded. Close the editor to reconnect.')
+    def attach_conversation(self):
+        if not self.current_id or not self.confirm_unsaved() or not self.before_apply():return
+        thread_id=self.existing_thread.text().strip()
+        if not thread_id:error(self,'Paste the exact Codex conversation ID before attaching.');return
+        if QMessageBox.question(self,'Attach this conversation?','Use this existing Codex conversation for this agent in the selected project? Its content remains in Codex. This replaces the agent’s saved conversation mapping.')!=QMessageBox.StandardButton.Yes:return
+        try:self.store.link_existing_thread(self.current_id,thread_id,self.project_id)
+        except Exception as exc:error(self,exc);return
+        self._saved_form=None;self.changed=True;self.refresh_agents(self.current_id);self.feedback.setText('Conversation attached. Close the editor to connect.')
